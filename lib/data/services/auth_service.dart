@@ -1,4 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/services.dart' show PlatformException;
 import 'firebase_service.dart';
 
 /// Authentication service for handling user authentication operations
@@ -18,6 +21,42 @@ class AuthService {
 
   /// Get FirebaseAuth instance from FirebaseService
   FirebaseAuth get _auth => FirebaseService.instance.auth;
+
+  /// Google Sign In instance
+  /// 
+  /// For iOS: Automatically uses CLIENT_ID from GoogleService-Info.plist (no clientId needed)
+  /// For Android: Automatically uses client ID from google-services.json (no clientId needed)
+  /// For Web: Uses clientId from HTML meta tag (no clientId parameter needed)
+  GoogleSignIn get _googleSignIn {
+    // Check if running on iOS - Google Sign-In disabled for iOS
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      throw PlatformException(
+        code: 'UNSUPPORTED_PLATFORM',
+        message: 'Google Sign-In is not available on iOS. Please use Android or Web.',
+      );
+    }
+    
+    if (kIsWeb) {
+      // Web: clientId is set in HTML meta tag, but we can also specify it here as fallback
+      return GoogleSignIn(
+        scopes: ['email', 'profile'],
+        // Web client ID (from Firebase Console -> Authentication -> Sign-in method -> Google)
+        clientId: '374262604171-cvsp46uiru0oug63e22lo96353c9pu2m.apps.googleusercontent.com',
+      );
+    } else {
+      // Android: Don't specify clientId - it's automatically read from google-services.json
+      return GoogleSignIn(
+        scopes: ['email', 'profile'],
+      );
+    }
+  }
+  
+  /// Check if Google Sign-In is supported on current platform
+  /// Returns true for Android and Web, false for iOS
+  bool get isGoogleSignInSupported {
+    if (kIsWeb) return true;
+    return defaultTargetPlatform == TargetPlatform.android;
+  }
 
   /// Signs up a new user with email and password
   ///
@@ -97,13 +136,11 @@ class AuthService {
   ///
   /// Returns [UserCredential] if successful
   /// Throws exception if:
-  /// - Email is not verified (checked before returning)
   /// - User not found
   /// - Wrong password
   /// - Invalid email format
   ///
-  /// Note: This method checks if the email is verified before allowing sign in.
-  /// If email is not verified, it throws an error asking user to verify their email.
+  /// Note: Email verification check has been removed - users can sign in without verifying email.
   Future<UserCredential> signInWithEmail(
     String email,
     String password,
@@ -116,7 +153,7 @@ class AuthService {
         password: password,
       );
 
-      // Reload user to get latest email verification status
+      // Reload user to get latest data
       await userCredential.user?.reload();
       final currentUser = _auth.currentUser;
 
@@ -125,16 +162,7 @@ class AuthService {
         throw Exception('Sign in failed. Please try again.');
       }
 
-      // Check if email is verified
-      if (!currentUser.emailVerified) {
-        print('[AuthService] Sign in blocked: Email not verified for user: ${currentUser.uid}');
-        await signOut(); // Sign out the user since email is not verified
-        throw Exception(
-          'Please verify your email address before signing in. '
-          'Check your inbox for the verification email.',
-        );
-      }
-
+      // Email verification check removed - users can sign in without verifying email
       print('[AuthService] User signed in successfully: ${currentUser.uid}');
       return userCredential;
     } on FirebaseAuthException catch (e) {
@@ -258,6 +286,67 @@ class AuthService {
     final user = _auth.currentUser;
     print('[AuthService] Getting current user: ${user?.uid ?? 'null'}');
     return user;
+  }
+
+  /// Signs in with Google account
+  ///
+  /// Returns [UserCredential] if successful
+  /// Throws [FirebaseAuthException] with user-friendly error message on failure
+  /// Throws [PlatformException] if platform is not supported (iOS)
+  ///
+  /// This method:
+  /// - Signs in with Google
+  /// - Creates Firebase Auth account if it doesn't exist
+  /// - Returns the authenticated user
+  ///
+  /// Supported platforms: Android, Web
+  /// Not supported: iOS
+  Future<UserCredential> signInWithGoogle() async {
+    try {
+      // Check if Google Sign-In is supported on this platform
+      if (!isGoogleSignInSupported) {
+        throw PlatformException(
+          code: 'UNSUPPORTED_PLATFORM',
+          message: 'Google Sign-In is not available on iOS. Please use Android or Web.',
+        );
+      }
+      
+      print('[AuthService] Attempting to sign in with Google');
+      
+      // Trigger the Google Sign In flow
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      
+      if (googleUser == null) {
+        // User cancelled the sign-in
+        print('[AuthService] Google sign in cancelled by user');
+        throw Exception('Sign in was cancelled.');
+      }
+
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      // Create a new credential
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Sign in to Firebase with the Google credential
+      final userCredential = await _auth.signInWithCredential(credential);
+
+      print('[AuthService] Google sign in successful: ${userCredential.user?.uid}');
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      print('[AuthService] Google sign in error: ${e.code} - ${e.message}');
+      throw _handleAuthException(e);
+    } catch (e) {
+      print('[AuthService] Unexpected Google sign in error: $e');
+      // If it's already our custom exception, rethrow it
+      if (e.toString().contains('cancelled')) {
+        rethrow;
+      }
+      throw Exception('An unexpected error occurred during Google sign in. Please try again.');
+    }
   }
 
   /// Checks if the current user's email is verified

@@ -33,11 +33,18 @@ class FirebaseConstants {
   static const String statusField = 'status';
 
   // Swap Document Fields (for reference)
-  static const String swapIdField = 'swapId';
-  static const String requesterIdField = 'requesterId';
-  static const String requesterBookIdField = 'requesterBookId';
-  static const String ownerBookIdField = 'ownerBookId';
-  static const String swapStatusField = 'swapStatus';
+  static const String swapIdField = 'id';
+  static const String swapSenderIdField = 'senderId';
+  static const String swapSenderNameField = 'senderName';
+  static const String swapSenderEmailField = 'senderEmail';
+  static const String swapRecipientIdField = 'recipientId';
+  static const String swapRecipientNameField = 'recipientName';
+  static const String swapRecipientEmailField = 'recipientEmail';
+  static const String swapBookIdField = 'bookId';
+  static const String swapBookTitleField = 'bookTitle';
+  static const String swapBookImageUrlField = 'bookImageUrl';
+  static const String swapStatusField = 'status';
+  static const String swapMessageField = 'message';
 
   // Chat Document Fields (for reference)
   static const String chatIdField = 'chatId';

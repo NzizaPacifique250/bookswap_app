@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_colors.dart';
 import 'data/services/firebase_service.dart';
+import 'presentation/screens/auth/welcome_screen.dart';
+import 'presentation/screens/main_screen.dart';
+import 'presentation/providers/auth_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -68,25 +71,38 @@ class _MainAppState extends State<MainApp> {
       home: _isLoading
           ? const FirebaseLoadingScreen()
           : _isInitialized
-              ? const HomeScreen()
+              ? const AuthWrapper()
               : FirebaseErrorScreen(errorMessage: _errorMessage),
     );
   }
 }
 
-/// Home screen (placeholder - replace with your actual home screen)
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+/// Auth wrapper that checks authentication state and shows appropriate screen
+class AuthWrapper extends ConsumerWidget {
+  const AuthWrapper({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('BookSwapp'),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authStateProvider);
+
+    return authState.when(
+      data: (user) {
+        // If user is signed in, show main screen
+        if (user != null) {
+          return const MainScreen();
+        }
+        // If user is not signed in, show welcome screen
+        return const WelcomeScreen();
+      },
+      loading: () => const Scaffold(
+        backgroundColor: AppColors.primaryBackground,
+        body: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
+          ),
+        ),
       ),
-      body: const Center(
-        child: Text('Hello World!'),
-      ),
+      error: (error, stackTrace) => const WelcomeScreen(),
     );
   }
 }
@@ -182,7 +198,7 @@ class FirebaseErrorScreen extends StatelessWidget {
                   if (retryInitialized && context.mounted) {
                     Navigator.of(context).pushReplacement(
                       MaterialPageRoute(
-                        builder: (_) => const HomeScreen(),
+                        builder: (_) => const AuthWrapper(),
                       ),
                     );
                   }
