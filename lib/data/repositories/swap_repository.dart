@@ -250,6 +250,9 @@ class SwapRepository {
   /// 
   /// Returns a stream of swaps where the user is the sender.
   /// 
+  /// Note: Fetches all swaps and filters in memory to avoid requiring
+  /// composite indexes in Firestore.
+  /// 
   /// Example:
   /// ```dart
   /// SwapRepository.instance.getSentSwaps('user123').listen((swaps) {
@@ -259,15 +262,18 @@ class SwapRepository {
   Stream<List<SwapModel>> getSentSwaps(String userId) {
     print('[SwapRepository] Getting sent swaps for user: $userId');
 
+    // Fetch all swaps and filter in memory to avoid composite index requirement
     return _swapsCollection
-        .where(FirebaseConstants.swapSenderIdField, isEqualTo: userId)
         .orderBy(FirebaseConstants.createdAtField, descending: true)
         .snapshots()
         .map((snapshot) {
       return snapshot.docs
           .map((doc) {
             try {
-              return SwapModel.fromFirestore(doc);
+              final swap = SwapModel.fromFirestore(doc);
+              // Filter by sender ID
+              if (swap.senderId != userId) return null;
+              return swap;
             } catch (e) {
               print('[SwapRepository] Error parsing swap ${doc.id}: $e');
               return null;
@@ -282,6 +288,9 @@ class SwapRepository {
   /// 
   /// Returns a stream of swaps where the user is the recipient.
   /// 
+  /// Note: Fetches all swaps and filters in memory to avoid requiring
+  /// composite indexes in Firestore.
+  /// 
   /// Example:
   /// ```dart
   /// SwapRepository.instance.getReceivedSwaps('user123').listen((swaps) {
@@ -291,15 +300,18 @@ class SwapRepository {
   Stream<List<SwapModel>> getReceivedSwaps(String userId) {
     print('[SwapRepository] Getting received swaps for user: $userId');
 
+    // Fetch all swaps and filter in memory to avoid composite index requirement
     return _swapsCollection
-        .where(FirebaseConstants.swapRecipientIdField, isEqualTo: userId)
         .orderBy(FirebaseConstants.createdAtField, descending: true)
         .snapshots()
         .map((snapshot) {
       return snapshot.docs
           .map((doc) {
             try {
-              return SwapModel.fromFirestore(doc);
+              final swap = SwapModel.fromFirestore(doc);
+              // Filter by recipient ID
+              if (swap.recipientId != userId) return null;
+              return swap;
             } catch (e) {
               print('[SwapRepository] Error parsing swap ${doc.id}: $e');
               return null;

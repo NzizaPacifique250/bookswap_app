@@ -3,28 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/snackbar_utils.dart';
+import '../../../data/models/chat_model.dart';
 import '../../providers/auth_provider.dart';
-
-/// Chat message model (temporary, until full chat system is implemented)
-class ChatMessage {
-  final String id;
-  final String text;
-  final String senderId;
-  final String senderName;
-  final String? senderAvatar;
-  final DateTime timestamp;
-  final bool isRead;
-
-  const ChatMessage({
-    required this.id,
-    required this.text,
-    required this.senderId,
-    required this.senderName,
-    this.senderAvatar,
-    required this.timestamp,
-    this.isRead = false,
-  });
-}
+import '../../providers/chat_provider.dart';
 
 /// Chat detail screen showing conversation with another user
 /// 
@@ -51,58 +32,26 @@ class ChatDetailScreen extends ConsumerStatefulWidget {
 class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  
-  // Mock messages for demo (replace with actual Firestore data)
-  late List<ChatMessage> _messages;
 
   @override
   void initState() {
     super.initState();
-    _initializeMockMessages();
     
-    // Auto-scroll to bottom after frame is built
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Mark messages as read when opening chat
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final currentUserAsync = ref.read(currentUserProvider);
+      final currentUser = await currentUserAsync.value;
+      if (currentUser != null) {
+        final chatNotifier = ref.read(chatNotifierProvider.notifier);
+        await chatNotifier.markMessagesAsRead(
+          chatId: widget.chatId,
+          userId: currentUser.uid,
+        );
+      }
+      
+      // Auto-scroll to bottom after frame is built
       _scrollToBottom();
     });
-  }
-
-  void _initializeMockMessages() {
-    final now = DateTime.now();
-    final currentUserAsync = ref.read(currentUserProvider);
-    final currentUserId = currentUserAsync.value?.uid ?? 'currentUser';
-
-    _messages = [
-      ChatMessage(
-        id: '1',
-        text: 'Hi, are you interested in finding?',
-        senderId: widget.otherUserId,
-        senderName: widget.otherUserName,
-        senderAvatar: widget.otherUserAvatar,
-        timestamp: now.subtract(const Duration(hours: 2)),
-      ),
-      ChatMessage(
-        id: '2',
-        text: "Yes, I'm interested!",
-        senderId: currentUserId,
-        senderName: 'You',
-        timestamp: now.subtract(const Duration(hours: 1, minutes: 55)),
-      ),
-      ChatMessage(
-        id: '3',
-        text: 'Great! When can we meet?',
-        senderId: widget.otherUserId,
-        senderName: widget.otherUserName,
-        senderAvatar: widget.otherUserAvatar,
-        timestamp: now.subtract(const Duration(hours: 1, minutes: 50)),
-      ),
-      ChatMessage(
-        id: '4',
-        text: 'How about tomorrow?',
-        senderId: currentUserId,
-        senderName: 'You',
-        timestamp: now.subtract(const Duration(hours: 1, minutes: 45)),
-      ),
-    ];
   }
 
   @override
@@ -124,46 +73,64 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
   }
 
   /// Handle sending a message
-  void _handleSendMessage() {
+  Future<void> _handleSendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
     final currentUserAsync = ref.read(currentUserProvider);
-    final currentUserId = currentUserAsync.value?.uid ?? 'currentUser';
+    final currentUser = await currentUserAsync.value;
 
-    setState(() {
-      _messages.add(
-        ChatMessage(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          text: text,
-          senderId: currentUserId,
-          senderName: 'You',
-          timestamp: DateTime.now(),
-        ),
+    if (currentUser == null) {
+      SnackbarUtils.showErrorSnackbar(
+        context,
+        'Please sign in to send messages',
       );
-      _messageController.clear();
-    });
+      return;
+    }
 
-    // Scroll to bottom after sending
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToBottom();
-    });
+    // Get current user name
+    final currentUserName = currentUser.displayName ?? 'User';
 
-    // TODO: Send message to Firestore
+    // Clear input immediately for better UX
+    _messageController.clear();
+
+    try {
+      final chatNotifier = ref.read(chatNotifierProvider.notifier);
+      await chatNotifier.sendMessage(
+        chatId: widget.chatId,
+        senderId: currentUser.uid,
+        senderName: currentUserName,
+        text: text,
+        recipientId: widget.otherUserId,
+      );
+
+      // Scroll to bottom after sending
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToBottom();
+      });
+    } catch (e) {
+      // Restore message text on error
+      _messageController.text = text;
+      if (mounted) {
+        SnackbarUtils.showErrorSnackbar(
+          context,
+          'Failed to send message: ${e.toString()}',
+        );
+      }
+    }
   }
 
   /// Check if message is from current user
-  bool _isCurrentUser(String senderId) {
-    final currentUserAsync = ref.read(currentUserProvider);
-    final currentUserId = currentUserAsync.value?.uid ?? 'currentUser';
+  bool _isCurrentUser(String senderId, String? currentUserId) {
+    if (currentUserId == null) return false;
     return senderId == currentUserId;
   }
 
   /// Group messages by date
-  Map<String, List<ChatMessage>> _groupMessagesByDate() {
-    final Map<String, List<ChatMessage>> grouped = {};
+  Map<String, List<MessageModel>> _groupMessagesByDate(List<MessageModel> messages) {
+    final Map<String, List<MessageModel>> grouped = {};
     
-    for (final message in _messages) {
+    for (final message in messages) {
       final dateKey = DateFormat('MMMM d').format(message.timestamp);
       if (!grouped.containsKey(dateKey)) {
         grouped[dateKey] = [];
@@ -176,75 +143,137 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final groupedMessages = _groupMessagesByDate();
+    final currentUserAsync = ref.watch(currentUserProvider);
+    final messagesAsync = ref.watch(chatMessagesProvider(widget.chatId));
 
+    return currentUserAsync.when(
+      data: (currentUser) {
+        if (currentUser == null) {
+          return Scaffold(
+            backgroundColor: AppColors.primaryBackground,
+            appBar: AppBar(
+              backgroundColor: AppColors.primaryBackground,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: AppColors.accent),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+            body: const Center(
+              child: Text(
+                'Please sign in to view chat',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+          );
+        }
+
+        return messagesAsync.when(
+          data: (messages) {
+            final groupedMessages = _groupMessagesByDate(messages);
+            
+            return _buildChatUI(currentUser.uid, messages, groupedMessages);
+          },
+          loading: () => _buildScaffoldWithAppBar(
+            body: const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
+              ),
+            ),
+          ),
+          error: (error, stackTrace) => _buildScaffoldWithAppBar(
+            body: Center(
+              child: Text(
+                'Error loading messages: ${error.toString()}',
+                style: const TextStyle(color: AppColors.error),
+              ),
+            ),
+          ),
+        );
+      },
+      loading: () => _buildScaffoldWithAppBar(
+        body: const Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
+          ),
+        ),
+      ),
+      error: (error, stackTrace) => _buildScaffoldWithAppBar(
+        body: Center(
+          child: Text(
+            'Error: ${error.toString()}',
+            style: const TextStyle(color: AppColors.error),
+          ),
+        ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      backgroundColor: AppColors.primaryBackground,
+      elevation: 0,
+      leading: IconButton(
+        icon: const Icon(
+          Icons.arrow_back,
+          color: AppColors.accent,
+        ),
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+      title: Text(
+        widget.otherUserName,
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      actions: [
+        PopupMenuButton<String>(
+          icon: const Icon(
+            Icons.more_vert,
+            color: AppColors.textPrimary,
+          ),
+          color: AppColors.cardBackground,
+          onSelected: (value) {
+            if (value == 'block') {
+              SnackbarUtils.showInfoSnackbar(
+                context,
+                'Block feature coming soon',
+              );
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'block',
+              child: Text(
+                'Block User',
+                style: TextStyle(color: AppColors.error),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScaffoldWithAppBar({required Widget body}) {
     return Scaffold(
       backgroundColor: AppColors.primaryBackground,
-      appBar: AppBar(
-        backgroundColor: AppColors.primaryBackground,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back,
-            color: AppColors.accent,
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          widget.otherUserName,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(
-              Icons.more_vert,
-              color: AppColors.textPrimary,
-            ),
-            color: AppColors.cardBackground,
-            onSelected: (value) {
-              if (value == 'clear') {
-                setState(() {
-                  _messages.clear();
-                });
-                SnackbarUtils.showInfoSnackbar(
-                  context,
-                  'Chat cleared',
-                );
-              } else if (value == 'block') {
-                SnackbarUtils.showInfoSnackbar(
-                  context,
-                  'Block feature coming soon',
-                );
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'clear',
-                child: Text(
-                  'Clear Chat',
-                  style: TextStyle(color: AppColors.textPrimary),
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'block',
-                child: Text(
-                  'Block User',
-                  style: TextStyle(color: AppColors.error),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      appBar: _buildAppBar(),
+      body: body,
+    );
+  }
+
+  Widget _buildChatUI(String currentUserId, List<MessageModel> messages, Map<String, List<MessageModel>> groupedMessages) {
+    return Scaffold(
+      backgroundColor: AppColors.primaryBackground,
+      appBar: _buildAppBar(),
       body: Column(
         children: [
           // Messages list
           Expanded(
-            child: _messages.isEmpty
+            child: messages.isEmpty
                 ? _buildEmptyState()
                 : ListView.builder(
                     controller: _scrollController,
@@ -274,7 +303,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
                         
                         return Column(
                           children: messagesForDate
-                              .map((message) => _buildMessageBubble(message))
+                              .map((message) => _buildMessageBubble(message, currentUserId))
                               .toList(),
                         );
                       }
@@ -347,9 +376,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     );
   }
 
-  Widget _buildMessageBubble(ChatMessage message) {
-    final isCurrentUser = _isCurrentUser(message.senderId);
-    final timeStr = DateFormat('MMM d').format(message.timestamp);
+  Widget _buildMessageBubble(MessageModel message, String currentUserId) {
+    final isCurrentUser = _isCurrentUser(message.senderId, currentUserId);
+    final timeStr = DateFormat('h:mm a').format(message.timestamp);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -363,10 +392,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
             CircleAvatar(
               radius: 16,
               backgroundColor: AppColors.accent,
-              child: message.senderAvatar != null
+              child: widget.otherUserAvatar != null
                   ? ClipOval(
                       child: Image.network(
-                        message.senderAvatar!,
+                        widget.otherUserAvatar!,
                         width: 32,
                         height: 32,
                         fit: BoxFit.cover,
@@ -430,12 +459,33 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  timeStr,
-                  style: TextStyle(
-                    color: AppColors.textSecondary.withOpacity(0.6),
-                    fontSize: 11,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: isCurrentUser
+                      ? MainAxisAlignment.end
+                      : MainAxisAlignment.start,
+                  children: [
+                    Text(
+                      timeStr,
+                      style: TextStyle(
+                        color: AppColors.textSecondary.withOpacity(0.6),
+                        fontSize: 11,
+                      ),
+                    ),
+                    // Show read/unread indicator for sent messages
+                    if (isCurrentUser) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        message.isRead
+                            ? Icons.done_all
+                            : Icons.done,
+                        size: 14,
+                        color: message.isRead
+                            ? AppColors.accent
+                            : AppColors.textSecondary.withOpacity(0.6),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),

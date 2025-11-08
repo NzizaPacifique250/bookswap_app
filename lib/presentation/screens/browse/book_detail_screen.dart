@@ -7,6 +7,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/snackbar_utils.dart';
 import '../../providers/book_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/swap_provider.dart';
+import '../../providers/chat_provider.dart';
+import '../chats/chat_detail_screen.dart';
 
 /// Book detail screen showing comprehensive information about a book
 /// 
@@ -58,6 +61,35 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
 
   /// Handles swap request
   Future<void> _handleSwapRequest() async {
+    final currentUserAsync = ref.read(currentUserProvider);
+    final currentUser = currentUserAsync.value;
+    
+    if (currentUser == null) {
+      SnackbarUtils.showErrorSnackbar(
+        context,
+        'Please sign in to request a swap',
+      );
+      return;
+    }
+
+    // Check if user is trying to swap their own book
+    if (currentUser.uid == widget.book.ownerId) {
+      SnackbarUtils.showErrorSnackbar(
+        context,
+        'You cannot request a swap for your own book',
+      );
+      return;
+    }
+
+    // Check if book is available
+    if (!widget.book.isAvailable()) {
+      SnackbarUtils.showErrorSnackbar(
+        context,
+        'This book is no longer available for swapping',
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -73,15 +105,49 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
             fontWeight: FontWeight.w600,
           ),
         ),
-        content: const Text(
-          'You are about to request a swap for this book. '
-          'The owner will be notified and can accept or decline your request. '
-          'Once accepted, you can arrange the swap details.',
-          style: TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 14,
-            height: 1.5,
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'You are about to request a swap for this book. '
+              'The owner will be notified and can accept or decline your request.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primaryBackground,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Book: ${widget.book.title}',
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Owner: ${widget.book.ownerName}',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -104,12 +170,44 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
     );
 
     if (confirmed == true && mounted) {
-      // TODO: Implement swap request logic
-      // await swapRepository.createSwapRequest(...);
-      SnackbarUtils.showSuccessSnackbar(
-        context,
-        'Swap request sent successfully!',
-      );
+      try {
+        final swapNotifier = ref.read(swapNotifierProvider.notifier);
+        
+        // Show loading
+        SnackbarUtils.showLoadingSnackbar(
+          context,
+          'Sending swap request...',
+        );
+
+        await swapNotifier.createSwapOffer(
+          bookId: widget.book.id,
+          bookTitle: widget.book.title,
+          bookImageUrl: widget.book.imageUrl,
+          senderId: currentUser.uid,
+          senderName: currentUser.displayName ?? 'Unknown',
+          senderEmail: currentUser.email ?? '',
+          recipientId: widget.book.ownerId,
+          recipientName: widget.book.ownerName,
+          recipientEmail: widget.book.ownerEmail,
+          message: 'I would like to swap for "${widget.book.title}"',
+        );
+
+        if (mounted) {
+          SnackbarUtils.hideSnackbar(context);
+          SnackbarUtils.showSuccessSnackbar(
+            context,
+            'Swap request sent successfully! The owner will be notified.',
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          SnackbarUtils.hideSnackbar(context);
+          SnackbarUtils.showErrorSnackbar(
+            context,
+            'Failed to send swap request: ${e.toString().replaceFirst('Exception: ', '')}',
+          );
+        }
+      }
     }
   }
 
@@ -208,21 +306,68 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
   }
 
   /// Handles navigation to chat
-  void _handleMessage() {
-    // TODO: Navigate to chat screen
-    // Navigator.push(
-    //   context,
-    //   MaterialPageRoute(
-    //     builder: (context) => ChatScreen(
-    //       userId: widget.book.ownerId,
-    //       userName: widget.book.ownerName,
-    //     ),
-    //   ),
-    // );
-    SnackbarUtils.showInfoSnackbar(
-      context,
-      'Chat functionality coming soon!',
-    );
+  Future<void> _handleMessage() async {
+    final currentUserAsync = ref.read(currentUserProvider);
+    final currentUser = await currentUserAsync.value;
+
+    if (currentUser == null) {
+      SnackbarUtils.showErrorSnackbar(
+        context,
+        'Please sign in to message the book owner',
+      );
+      return;
+    }
+
+    // Don't allow messaging yourself
+    if (currentUser.uid == widget.book.ownerId) {
+      SnackbarUtils.showErrorSnackbar(
+        context,
+        'You cannot message yourself',
+      );
+      return;
+    }
+
+    try {
+      // Show loading
+      SnackbarUtils.showLoadingSnackbar(
+        context,
+        'Opening chat...',
+      );
+
+      final chatNotifier = ref.read(chatNotifierProvider.notifier);
+      final chatId = await chatNotifier.getOrCreateChatWithBookOwner(
+        currentUserId: currentUser.uid,
+        bookOwnerId: widget.book.ownerId,
+        bookOwnerName: widget.book.ownerName,
+        bookOwnerEmail: widget.book.ownerEmail,
+        bookId: widget.book.id,
+        bookTitle: widget.book.title,
+        bookImageUrl: widget.book.imageUrl,
+      );
+
+      if (mounted) {
+        SnackbarUtils.hideSnackbar(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ChatDetailScreen(
+              chatId: chatId,
+              otherUserName: widget.book.ownerName,
+              otherUserAvatar: null, // TODO: Get from user profile
+              otherUserId: widget.book.ownerId,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        SnackbarUtils.hideSnackbar(context);
+        SnackbarUtils.showErrorSnackbar(
+          context,
+          'Failed to open chat: ${e.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
+    }
   }
 
   /// Handles share action

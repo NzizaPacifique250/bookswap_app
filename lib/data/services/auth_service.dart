@@ -249,6 +249,33 @@ class AuthService {
     }
   }
 
+  /// Updates the current user's display name
+  ///
+  /// [displayName] - New display name for the user
+  ///
+  /// Throws exception if no user is signed in or update fails
+  Future<void> updateDisplayName(String displayName) async {
+    try {
+      final user = _auth.currentUser;
+      
+      if (user == null) {
+        print('[AuthService] Cannot update display name: No user signed in');
+        throw Exception('No user is signed in.');
+      }
+
+      print('[AuthService] Updating display name for user: ${user.uid}');
+      await user.updateDisplayName(displayName.trim());
+      await user.reload(); // Reload to get updated data
+      print('[AuthService] Display name updated successfully');
+    } on FirebaseAuthException catch (e) {
+      print('[AuthService] Update display name error: ${e.code} - ${e.message}');
+      throw _handleAuthException(e);
+    } catch (e) {
+      print('[AuthService] Unexpected update display name error: $e');
+      throw Exception('An error occurred while updating display name. Please try again.');
+    }
+  }
+
   /// Returns a stream of authentication state changes
   ///
   /// This stream emits events when:

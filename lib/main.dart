@@ -10,6 +10,16 @@ import 'presentation/providers/auth_provider.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  // Try to initialize Firebase before running the app
+  // If it fails, the app will still start and show an error screen
+  try {
+    await FirebaseService.instance.initializeFirebase();
+  } catch (e) {
+    // Firebase initialization failed, but we'll still run the app
+    // The MainApp widget will handle showing the error screen
+    debugPrint('Firebase initialization failed in main(): $e');
+  }
+  
   runApp(
     const ProviderScope(
       child: MainApp(),
@@ -32,10 +42,22 @@ class _MainAppState extends State<MainApp> {
   @override
   void initState() {
     super.initState();
-    _initializeFirebase();
+    _checkFirebaseInitialization();
   }
 
-  Future<void> _initializeFirebase() async {
+  Future<void> _checkFirebaseInitialization() async {
+    // Check if Firebase is already initialized (from main())
+    if (FirebaseService.instance.isInitialized) {
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    // If not initialized, try to initialize now
     try {
       final initialized =
           await FirebaseService.instance.initializeFirebase();

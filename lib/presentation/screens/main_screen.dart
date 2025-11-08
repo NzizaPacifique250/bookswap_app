@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../widgets/common/app_bottom_navigation.dart';
 import '../providers/auth_provider.dart';
+import '../providers/chat_provider.dart';
 import 'browse/browse_screen.dart';
 import 'my_listings/my_listings_screen.dart';
 import 'chats/chats_screen.dart';
@@ -48,6 +49,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     _currentIndex = widget.initialIndex;
     _setupAuthListener();
   }
+
 
   /// Listen to auth state and redirect to welcome if logged out
   void _setupAuthListener() {
@@ -140,16 +142,54 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Use authStateProvider (StreamProvider) instead of currentUserProvider (FutureProvider)
+    // This ensures immediate updates when auth state changes
+    final authState = ref.watch(authStateProvider);
+    
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
+        backgroundColor: AppColors.primaryBackground,
         body: IndexedStack(
           index: _currentIndex,
           children: _screens,
         ),
-        bottomNavigationBar: AppBottomNavigation(
-          currentIndex: _currentIndex,
-          onTap: _onTabTapped,
+        bottomNavigationBar: authState.when(
+          data: (currentUser) {
+            if (currentUser == null) {
+              return AppBottomNavigation(
+                currentIndex: _currentIndex,
+                onTap: _onTabTapped,
+              );
+            }
+            
+            // Get unread count for chats tab
+            final unreadCountAsync = ref.watch(totalUnreadCountProvider(currentUser.uid));
+            
+            return unreadCountAsync.when(
+              data: (unreadCount) => AppBottomNavigation(
+                currentIndex: _currentIndex,
+                onTap: _onTabTapped,
+                unreadCount: unreadCount > 0 ? unreadCount : null,
+              ),
+              loading: () => AppBottomNavigation(
+                currentIndex: _currentIndex,
+                onTap: _onTabTapped,
+              ),
+              error: (error, stackTrace) => AppBottomNavigation(
+                currentIndex: _currentIndex,
+                onTap: _onTabTapped,
+              ),
+            );
+          },
+          loading: () => AppBottomNavigation(
+            currentIndex: _currentIndex,
+            onTap: _onTabTapped,
+          ),
+          error: (error, stackTrace) => AppBottomNavigation(
+            currentIndex: _currentIndex,
+            onTap: _onTabTapped,
+          ),
         ),
       ),
     );

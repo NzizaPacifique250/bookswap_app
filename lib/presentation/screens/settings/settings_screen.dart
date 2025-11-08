@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/snackbar_utils.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/user_provider.dart';
 import '../auth/welcome_screen.dart';
 import 'about_screen.dart';
+import 'edit_profile_screen.dart';
 
 /// Settings screen for app preferences and user account
 /// 
@@ -139,46 +141,78 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final currentUserAsync = ref.watch(currentUserProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.primaryBackground,
-      appBar: AppBar(
-        backgroundColor: AppColors.primaryBackground,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: const Text(
-          'Settings',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+    return Column(
+      children: [
+        AppBar(
+          backgroundColor: AppColors.primaryBackground,
+          elevation: 0,
+          automaticallyImplyLeading: false,
+          title: const Text(
+            'Settings',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
-      ),
-      body: currentUserAsync.when(
+        Expanded(
+          child: currentUserAsync.when(
         data: (currentUser) {
           if (currentUser == null) {
             return _buildSignInPrompt();
           }
 
-          return SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Profile section
-                _buildProfileSection(currentUser),
-                
-                const SizedBox(height: 24),
-                
-                // Settings section
-                _buildSettingsSection(),
-                
-                const SizedBox(height: 24),
-                
-                // Logout button
-                _buildLogoutButton(),
-                
-                const SizedBox(height: 24),
-              ],
+          // Get UserModel from Firestore for more complete user info
+          final userModelAsync = ref.watch(currentUserModelProvider(currentUser.uid));
+
+          return userModelAsync.when(
+            data: (userModel) => SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Profile section
+                  _buildProfileSection(currentUser, userModel),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Settings section
+                  _buildSettingsSection(),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Logout button
+                  _buildLogoutButton(),
+                  
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
+            loading: () => const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
+              ),
+            ),
+            error: (error, stackTrace) => SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Profile section with Firebase User data (fallback)
+                  _buildProfileSection(currentUser, null),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Settings section
+                  _buildSettingsSection(),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Logout button
+                  _buildLogoutButton(),
+                  
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
           );
         },
@@ -193,7 +227,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             style: TextStyle(color: AppColors.error),
           ),
         ),
-      ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -253,10 +289,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Widget _buildProfileSection(dynamic currentUser) {
-    final initials = currentUser.displayName?.isNotEmpty == true
-        ? currentUser.displayName![0].toUpperCase()
-        : currentUser.email![0].toUpperCase();
+  Widget _buildProfileSection(dynamic currentUser, dynamic userModel) {
+    // Use UserModel displayName if available, otherwise fallback to Firebase User
+    final displayName = userModel?.displayName ?? 
+                       currentUser.displayName ?? 
+                       currentUser.email?.split('@').first ?? 
+                       'User';
+    
+    final email = currentUser.email ?? '';
+    
+    final initials = displayName.isNotEmpty
+        ? displayName[0].toUpperCase()
+        : (email.isNotEmpty ? email[0].toUpperCase() : 'U');
 
     return Container(
       margin: const EdgeInsets.all(16),
@@ -284,7 +328,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           
           // Name
           Text(
-            currentUser.displayName ?? 'User',
+            displayName,
             style: const TextStyle(
               color: AppColors.textPrimary,
               fontSize: 20,
@@ -295,7 +339,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           
           // Email
           Text(
-            currentUser.email ?? '',
+            email,
             style: TextStyle(
               color: AppColors.textSecondary.withOpacity(0.8),
               fontSize: 14,
@@ -306,9 +350,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           // Edit Profile Button
           OutlinedButton(
             onPressed: () {
-              SnackbarUtils.showInfoSnackbar(
+              Navigator.push(
                 context,
-                'Edit profile feature coming soon',
+                MaterialPageRoute(
+                  builder: (context) => const EditProfileScreen(),
+                ),
               );
             },
             style: OutlinedButton.styleFrom(

@@ -5,7 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/utils/snackbar_utils.dart';
 import '../../providers/auth_provider.dart';
-import '../../screens/browse/browse_screen.dart';
+import '../../screens/main_screen.dart';
 import 'signup_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -59,9 +59,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           context,
           'Signed in with Google successfully!',
         );
-        // Navigate directly to BrowseScreen after successful login
+        // Navigate to MainScreen after successful login
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const BrowseScreen()),
+          MaterialPageRoute(builder: (context) => const MainScreen()),
           (route) => false, // Remove all previous routes
         );
       }
@@ -106,9 +106,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           'Signed in successfully!',
         );
         
-        // Navigate directly to BrowseScreen after successful login
+        // Navigate to MainScreen after successful login
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const BrowseScreen()),
+          MaterialPageRoute(builder: (context) => const MainScreen()),
           (route) => false, // Remove all previous routes
         );
       }

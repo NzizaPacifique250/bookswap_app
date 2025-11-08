@@ -242,6 +242,47 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
     }
   }
 
+  /// Updates the current user's display name
+  /// 
+  /// [displayName] - New display name for the user
+  /// 
+  /// Updates both Firebase Auth and Firestore user document
+  Future<void> updateDisplayName(String displayName) async {
+    try {
+      print('[AuthNotifier] Updating display name');
+      
+      // Update in Firebase Auth
+      await _authService.updateDisplayName(displayName);
+      
+      // Get updated user
+      final user = _authService.getCurrentUser();
+      if (user == null) {
+        throw Exception('User not found');
+      }
+
+      // Update in Firestore if user document exists
+      try {
+        final userExists = await _userRepository.userExists(user.uid);
+        if (userExists) {
+          await _userRepository.updateUser(
+            user.uid,
+            {'displayName': displayName},
+          );
+        }
+      } catch (e) {
+        print('[AuthNotifier] Error updating Firestore: $e');
+        // Don't fail if Firestore update fails
+      }
+
+      print('[AuthNotifier] Display name updated successfully');
+      state = AsyncValue.data(user);
+    } catch (e) {
+      print('[AuthNotifier] Update display name error: $e');
+      state = AsyncValue.error(e, StackTrace.current);
+      rethrow;
+    }
+  }
+
   /// Sends password reset email to the provided email address
   /// 
   /// [email] - Email address to send reset link to

@@ -1,126 +1,118 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/chat_provider.dart';
 import 'chat_detail_screen.dart';
 
-/// Temporary chat preview model
-class ChatPreview {
-  final String chatId;
-  final String otherUserId;
-  final String otherUserName;
-  final String? otherUserAvatar;
-  final String lastMessage;
-  final DateTime lastMessageTime;
-  final int unreadCount;
-
-  const ChatPreview({
-    required this.chatId,
-    required this.otherUserId,
-    required this.otherUserName,
-    this.otherUserAvatar,
-    required this.lastMessage,
-    required this.lastMessageTime,
-    this.unreadCount = 0,
-  });
-}
-
 /// Chats list screen showing all conversations
-class ChatsScreen extends ConsumerStatefulWidget {
+class ChatsScreen extends ConsumerWidget {
   const ChatsScreen({super.key});
 
   @override
-  ConsumerState<ChatsScreen> createState() => _ChatsScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentUserAsync = ref.watch(currentUserProvider);
 
-class _ChatsScreenState extends ConsumerState<ChatsScreen> {
-  // Mock chats for demo
-  late List<ChatPreview> _chats;
-
-  @override
-  void initState() {
-    super.initState();
-    _initializeMockChats();
-  }
-
-  void _initializeMockChats() {
-    final now = DateTime.now();
-    _chats = [
-      ChatPreview(
-        chatId: 'chat1',
-        otherUserId: 'user1',
-        otherUserName: 'Alice',
-        lastMessage: 'Great! When can we meet?',
-        lastMessageTime: now.subtract(const Duration(hours: 1)),
-        unreadCount: 1,
-      ),
-      ChatPreview(
-        chatId: 'chat2',
-        otherUserId: 'user2',
-        otherUserName: 'Bob',
-        lastMessage: 'Thanks for the book!',
-        lastMessageTime: now.subtract(const Duration(days: 1)),
-      ),
-      ChatPreview(
-        chatId: 'chat3',
-        otherUserId: 'user3',
-        otherUserName: 'Charlie',
-        lastMessage: 'Is the book still available?',
-        lastMessageTime: now.subtract(const Duration(days: 2)),
-        unreadCount: 2,
-      ),
-    ];
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.primaryBackground,
-      appBar: AppBar(
-        backgroundColor: AppColors.primaryBackground,
-        elevation: 0,
-        title: const Text(
-          'Chats',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+    return Column(
+      children: [
+        AppBar(
+          backgroundColor: AppColors.primaryBackground,
+          elevation: 0,
+          title: const Text(
+            'Chats',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
-      ),
-      body: _chats.isEmpty
-          ? _buildEmptyState()
-          : ListView.separated(
-              itemCount: _chats.length,
-              separatorBuilder: (context, index) => Divider(
-                height: 1,
-                thickness: 1,
-                color: AppColors.border.withOpacity(0.2),
-                indent: 72,
+        Expanded(
+          child: currentUserAsync.when(
+            data: (currentUser) {
+              if (currentUser == null) {
+                return _buildEmptyState('Please sign in to view chats');
+              }
+
+              final chatsAsync = ref.watch(userChatsProvider(currentUser.uid));
+
+              return chatsAsync.when(
+                data: (chats) {
+                  if (chats.isEmpty) {
+                    return _buildEmptyState();
+                  }
+
+                  return ListView.separated(
+                    itemCount: chats.length,
+                    separatorBuilder: (context, index) => Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: AppColors.border.withOpacity(0.2),
+                      indent: 72,
+                    ),
+                    itemBuilder: (context, index) {
+                      final chat = chats[index];
+                      final otherUserId = chat.getOtherParticipantId(currentUser.uid);
+                      final otherUserName = chat.getOtherParticipantName(currentUser.uid);
+                      final otherUserAvatar = chat.getOtherParticipantAvatar(currentUser.uid);
+                      final unreadCount = chat.getUnreadCount(currentUser.uid);
+
+                      return _ChatListItem(
+                        chatId: chat.id,
+                        otherUserId: otherUserId,
+                        otherUserName: otherUserName,
+                        otherUserAvatar: otherUserAvatar,
+                        lastMessage: chat.lastMessageText ?? 'No messages yet',
+                        lastMessageTime: chat.lastMessageTime ?? chat.updatedAt,
+                        unreadCount: unreadCount,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ChatDetailScreen(
+                                chatId: chat.id,
+                                otherUserName: otherUserName,
+                                otherUserAvatar: otherUserAvatar,
+                                otherUserId: otherUserId,
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+                loading: () => const Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
+                  ),
+                ),
+                error: (error, stackTrace) => Center(
+                  child: Text(
+                    'Error loading chats: ${error.toString()}',
+                    style: const TextStyle(color: AppColors.error),
+                  ),
+                ),
+              );
+            },
+            loading: () => const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
               ),
-              itemBuilder: (context, index) {
-                final chat = _chats[index];
-                return _ChatListItem(
-                  chat: chat,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ChatDetailScreen(
-                          chatId: chat.chatId,
-                          otherUserName: chat.otherUserName,
-                          otherUserAvatar: chat.otherUserAvatar,
-                          otherUserId: chat.otherUserId,
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
             ),
+            error: (error, stackTrace) => Center(
+              child: Text(
+                'Error loading user: ${error.toString()}',
+                style: const TextStyle(color: AppColors.error),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState([String? message]) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -142,9 +134,9 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Start swapping books to begin chatting!',
-              style: TextStyle(
+            Text(
+              message ?? 'Start swapping books to begin chatting!',
+              style: const TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 14,
               ),
@@ -158,11 +150,23 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
 }
 
 class _ChatListItem extends StatelessWidget {
-  final ChatPreview chat;
+  final String chatId;
+  final String otherUserId;
+  final String otherUserName;
+  final String? otherUserAvatar;
+  final String lastMessage;
+  final DateTime lastMessageTime;
+  final int unreadCount;
   final VoidCallback onTap;
 
   const _ChatListItem({
-    required this.chat,
+    required this.chatId,
+    required this.otherUserId,
+    required this.otherUserName,
+    this.otherUserAvatar,
+    required this.lastMessage,
+    required this.lastMessageTime,
+    this.unreadCount = 0,
     required this.onTap,
   });
 
@@ -199,15 +203,15 @@ class _ChatListItem extends StatelessWidget {
               CircleAvatar(
                 radius: 28,
                 backgroundColor: AppColors.accent,
-                child: chat.otherUserAvatar != null
+                child: otherUserAvatar != null
                     ? ClipOval(
                         child: Image.network(
-                          chat.otherUserAvatar!,
+                          otherUserAvatar!,
                           width: 56,
                           height: 56,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) => Text(
-                            chat.otherUserName[0].toUpperCase(),
+                            otherUserName[0].toUpperCase(),
                             style: const TextStyle(
                               color: AppColors.primaryBackground,
                               fontSize: 20,
@@ -217,7 +221,7 @@ class _ChatListItem extends StatelessWidget {
                         ),
                       )
                     : Text(
-                        chat.otherUserName[0].toUpperCase(),
+                        otherUserName[0].toUpperCase(),
                         style: const TextStyle(
                           color: AppColors.primaryBackground,
                           fontSize: 20,
@@ -235,7 +239,7 @@ class _ChatListItem extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          chat.otherUserName,
+                          otherUserName,
                           style: const TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 16,
@@ -243,7 +247,7 @@ class _ChatListItem extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          _formatTime(chat.lastMessageTime),
+                          _formatTime(lastMessageTime),
                           style: TextStyle(
                             color: AppColors.textSecondary.withOpacity(0.7),
                             fontSize: 12,
@@ -256,13 +260,13 @@ class _ChatListItem extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            chat.lastMessage,
+                            lastMessage,
                             style: TextStyle(
-                              color: chat.unreadCount > 0
+                              color: unreadCount > 0
                                   ? AppColors.textPrimary
                                   : AppColors.textSecondary,
                               fontSize: 14,
-                              fontWeight: chat.unreadCount > 0
+                              fontWeight: unreadCount > 0
                                   ? FontWeight.w600
                                   : FontWeight.normal,
                             ),
@@ -270,7 +274,7 @@ class _ChatListItem extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (chat.unreadCount > 0) ...[
+                        if (unreadCount > 0) ...[
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -282,7 +286,7 @@ class _ChatListItem extends StatelessWidget {
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
-                              '${chat.unreadCount}',
+                              '$unreadCount',
                               style: const TextStyle(
                                 color: AppColors.primaryBackground,
                                 fontSize: 11,
@@ -303,4 +307,3 @@ class _ChatListItem extends StatelessWidget {
     );
   }
 }
-

@@ -21,12 +21,16 @@ class AppBottomNavigation extends StatelessWidget {
   /// Optional custom icons (defaults to standard icons)
   final List<IconData>? customIcons;
 
+  /// Optional unread count for chats tab (index 2)
+  final int? unreadCount;
+
   const AppBottomNavigation({
     super.key,
     required this.currentIndex,
     required this.onTap,
     this.customLabels,
     this.customIcons,
+    this.unreadCount,
   });
 
   /// Default labels for navigation items
@@ -89,13 +93,58 @@ class AppBottomNavigation extends StatelessWidget {
             showUnselectedLabels: true,
             items: List.generate(
               4,
-              (index) => BottomNavigationBarItem(
-                icon: Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Icon(icons[index]),
-                ),
-                label: labels[index],
-              ),
+              (index) {
+                // Add badge to chats tab (index 2) if there are unread messages
+                final showBadge = index == 2 && unreadCount != null && unreadCount! > 0;
+                
+                return BottomNavigationBarItem(
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Icon(icons[index]),
+                      ),
+                      if (showBadge)
+                        Positioned(
+                          right: -4,
+                          top: -4,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: unreadCount! > 99 ? 4 : 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.accent,
+                              shape: unreadCount! > 99 
+                                  ? BoxShape.rectangle 
+                                  : BoxShape.circle,
+                              borderRadius: unreadCount! > 99 
+                                  ? BorderRadius.circular(8) 
+                                  : null,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 18,
+                              minHeight: 18,
+                            ),
+                            child: Center(
+                              child: Text(
+                                unreadCount! > 99 ? '99+' : '$unreadCount',
+                                style: const TextStyle(
+                                  color: AppColors.primaryBackground,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  label: labels[index],
+                );
+              },
             ),
             onTap: onTap,
           ),

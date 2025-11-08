@@ -17,43 +17,26 @@ class BrowseScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final allBooksAsync = ref.watch(allBooksProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.primaryBackground,
-      appBar: AppBar(
-        backgroundColor: AppColors.primaryBackground,
-        elevation: 0,
-        leading: Container(), // Remove the leading icon button
-        
-        title: const Text(
-          'Browse Listings',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const AddEditBookScreen(),
+    return Column(
+      children: [
+        AppBar(
+          backgroundColor: AppColors.primaryBackground,
+          elevation: 0,
+          leading: Container(), // Remove the leading icon button
+          
+          title: const Text(
+            'Browse Listings',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
             ),
-          );
-        },
-        backgroundColor: AppColors.accent,
-        foregroundColor: AppColors.primaryBackground,
-        icon: const Icon(Icons.add),
-        label: const Text(
-          'Post a Book',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
           ),
         ),
-      ),
-      body: allBooksAsync.when(
+        Expanded(
+          child: Stack(
+            children: [
+              allBooksAsync.when(
         data: (books) {
           if (books.isEmpty) {
             return Center(
@@ -132,7 +115,35 @@ class BrowseScreen extends ConsumerWidget {
         },
         loading: () => _buildLoadingState(),
         error: (error, stackTrace) => _buildErrorState(context, error, ref),
-      ),
+              ),
+              Positioned(
+                bottom: 16,
+                right: 16,
+                child: FloatingActionButton.extended(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AddEditBookScreen(),
+                      ),
+                    );
+                  },
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: AppColors.primaryBackground,
+                  icon: const Icon(Icons.add),
+                  label: const Text(
+                    'Post a Book',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

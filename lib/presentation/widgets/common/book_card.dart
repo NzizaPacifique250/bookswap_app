@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/models/book_model.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/chat_provider.dart';
+import '../../../core/utils/snackbar_utils.dart';
+import '../../screens/chats/chat_detail_screen.dart';
 
 /// Book card widget displaying book information in a card format
 /// 
 /// Matches the Browse Listings design with dark theme
 /// Shows book cover, title, author, condition badge, and timestamp
-class BookCard extends StatelessWidget {
+class BookCard extends ConsumerWidget {
   final BookModel book;
   final VoidCallback? onTap;
 
@@ -60,10 +65,78 @@ class BookCard extends StatelessWidget {
     }
   }
 
+  /// Handles chat icon tap
+  Future<void> _handleChatTap(BuildContext context, WidgetRef ref) async {
+    final currentUserAsync = ref.read(currentUserProvider);
+    final currentUser = await currentUserAsync.value;
+
+    if (currentUser == null) {
+      SnackbarUtils.showErrorSnackbar(
+        context,
+        'Please sign in to message the book owner',
+      );
+      return;
+    }
+
+    // Don't allow messaging yourself
+    if (currentUser.uid == book.ownerId) {
+      SnackbarUtils.showErrorSnackbar(
+        context,
+        'You cannot message yourself',
+      );
+      return;
+    }
+
+    try {
+      // Show loading
+      SnackbarUtils.showLoadingSnackbar(
+        context,
+        'Opening chat...',
+      );
+
+      final chatNotifier = ref.read(chatNotifierProvider.notifier);
+      final chatId = await chatNotifier.getOrCreateChatWithBookOwner(
+        currentUserId: currentUser.uid,
+        bookOwnerId: book.ownerId,
+        bookOwnerName: book.ownerName,
+        bookOwnerEmail: book.ownerEmail,
+        bookId: book.id,
+        bookTitle: book.title,
+        bookImageUrl: book.imageUrl,
+      );
+
+      if (context.mounted) {
+        SnackbarUtils.hideSnackbar(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ChatDetailScreen(
+              chatId: chatId,
+              otherUserName: book.ownerName,
+              otherUserAvatar: null, // TODO: Get from user profile
+              otherUserId: book.ownerId,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        SnackbarUtils.hideSnackbar(context);
+        SnackbarUtils.showErrorSnackbar(
+          context,
+          'Failed to open chat: ${e.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isSwapped = book.status == BookStatus.swapped;
     final isPending = book.status == BookStatus.pending;
+    final currentUserAsync = ref.watch(currentUserProvider);
+    final currentUserId = currentUserAsync.value?.uid;
+    final showChatIcon = currentUserId != null && currentUserId != book.ownerId;
 
     return Card(
       color: AppColors.cardBackground,
@@ -170,6 +243,31 @@ class BookCard extends StatelessWidget {
                               color: AppColors.textPrimary,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    // Chat icon positioned at top right of image (only show if not owner)
+                    if (showChatIcon)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Material(
+                          color: AppColors.cardBackground.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(20),
+                          child: InkWell(
+                            onTap: () => _handleChatTap(context, ref),
+                            borderRadius: BorderRadius.circular(20),
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.chat_bubble_outline,
+                                size: 20,
+                                color: AppColors.accent,
+                              ),
                             ),
                           ),
                         ),
