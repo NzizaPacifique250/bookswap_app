@@ -317,10 +317,6 @@ This project is licensed under the MIT License.
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📞 Support
-
-For support, email support@bookswap.app or open an issue in the repository.
-
 ---
 
 **Built with ❤️ using Flutter and Firebase**
